@@ -1,0 +1,15 @@
+plugins {
+    id 'base'
+}
+
+allprojects {
+    group = project.maven_group
+    version = project.mod_version
+}
+
+tasks.register('build1214') {
+    group = 'build'
+    description = 'Builds only the Minecraft 1.21.4 distribution.'
+    dependsOn ':versions:1.21.4:build'
+}
+

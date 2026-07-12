@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: mccape-api
+    runtime: docker
+    dockerfilePath: ./server/Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: ALLOW_INSECURE_DEV_AUTH
+        value: "false"
+      - key: DATA_DIR
+        value: /tmp/mccape-data
