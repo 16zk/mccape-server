@@ -16,7 +16,11 @@ public final class McCapeServer {
         AuthService auth = new AuthService();
         Javalin app = Javalin.create(c -> c.http.maxRequestSize = 5L * 1024 * 1024).start(config.port());
         app.events(events -> events.serverStopped(store::close));
-        app.get("/health", ctx -> ctx.json(Map.of("status", "ok")));
+        app.get("/health", ctx -> ctx.json(Map.of(
+                "status", "ok",
+                "storage", config.databaseUrl() == null || config.databaseUrl().isBlank()
+                        ? "local"
+                        : "postgresql")));
         app.post("/api/v1/auth/challenge", ctx -> ctx.json(auth.challenge()));
         app.post("/api/v1/auth/complete", ctx -> {
             try { AuthService.CompleteRequest request = ctx.bodyAsClass(AuthService.CompleteRequest.class); ctx.json(auth.complete(request.challengeId(), request.username())); }
