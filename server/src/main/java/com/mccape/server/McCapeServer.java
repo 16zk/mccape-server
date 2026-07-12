@@ -13,22 +13,31 @@ public final class McCapeServer {
     public static void main(String[] args) throws Exception { start(ServerConfig.environment()); }
     public static Javalin start(ServerConfig config) throws Exception {
         CapeStore store = new CapeStore(config.dataDirectory());
+        AuthService auth = new AuthService();
         Javalin app = Javalin.create(c -> c.http.maxRequestSize = 5L * 1024 * 1024).start(config.port());
         app.events(events -> events.serverStopped(store::close));
         app.get("/health", ctx -> ctx.json(Map.of("status", "ok")));
-        app.post("/api/v1/capes", ctx -> upload(ctx, config, store));
+        app.post("/api/v1/auth/challenge", ctx -> ctx.json(auth.challenge()));
+        app.post("/api/v1/auth/complete", ctx -> {
+            try { AuthService.CompleteRequest request = ctx.bodyAsClass(AuthService.CompleteRequest.class); ctx.json(auth.complete(request.challengeId(), request.username())); }
+            catch (SecurityException e) { throw new UnauthorizedResponse(e.getMessage()); }
+        });
+        app.post("/api/v1/capes", ctx -> upload(ctx, config, store, auth));
         app.get("/api/v1/players/{uuid}/cape", ctx -> descriptor(ctx, store));
         app.get("/api/v1/capes/{id}/texture", ctx -> texture(ctx, store));
-        app.delete("/api/v1/players/{uuid}/cape", ctx -> remove(ctx, config, store));
+        app.delete("/api/v1/players/{uuid}/cape", ctx -> remove(ctx, config, store, auth));
         return app;
     }
-    private static UUID authenticate(Context ctx, ServerConfig config) {
-        if (!config.insecureDevelopmentAuth()) throw new UnauthorizedResponse("No production identity provider configured");
-        String value = ctx.header("X-Dev-Player"); if (value == null) throw new UnauthorizedResponse("Development header missing");
-        return UUID.fromString(value);
+    private static UUID authenticate(Context ctx, ServerConfig config, AuthService auth) {
+        try { return auth.authenticate(ctx.header("Authorization")); }
+        catch (SecurityException ignored) {
+            if (!config.insecureDevelopmentAuth()) throw new UnauthorizedResponse("Valid Mc Cape session required");
+            String value = ctx.header("X-Dev-Player"); if (value == null) throw new UnauthorizedResponse("Development header missing");
+            return UUID.fromString(value);
+        }
     }
-    private static void upload(Context ctx, ServerConfig config, CapeStore store) throws Exception {
-        UUID player = authenticate(ctx, config);
+    private static void upload(Context ctx, ServerConfig config, CapeStore store, AuthService auth) throws Exception {
+        UUID player = authenticate(ctx, config, auth);
         if (!"image/png".equalsIgnoreCase(ctx.contentType())) throw new UnsupportedMediaTypeResponse("Expected image/png");
         Path temporary = Files.createTempFile(config.dataDirectory(), "upload-", ".png");
         try {
@@ -48,8 +57,8 @@ public final class McCapeServer {
         CapeStore.StoredCape cape = store.byId(ctx.pathParam("id")).orElseThrow(NotFoundResponse::new);
         ctx.contentType("image/png").header("ETag", cape.sha256()).header("Cache-Control", "public, max-age=3600").result(Files.newInputStream(store.texture(cape)));
     }
-    private static void remove(Context ctx, ServerConfig config, CapeStore store) throws Exception {
-        UUID requested = UUID.fromString(ctx.pathParam("uuid")), authenticated = authenticate(ctx, config);
+    private static void remove(Context ctx, ServerConfig config, CapeStore store, AuthService auth) throws Exception {
+        UUID requested = UUID.fromString(ctx.pathParam("uuid")), authenticated = authenticate(ctx, config, auth);
         if (!requested.equals(authenticated)) throw new ForbiddenResponse(); store.delete(requested); ctx.status(204);
     }
 }
